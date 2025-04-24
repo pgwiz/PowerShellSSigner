@@ -1,63 +1,118 @@
-# PowerShell Script Signing Automation
+# PowerShell Script Signing & Trust Automation
 
-This script automates the process of signing PowerShell scripts using a self-signed code-signing certificate. It checks for existing certificates, creates one if needed, and signs the target script if it isn't already signed.
+A complete solution for:
+- Creating code-signing certificates (if none exist)
+- Configuring trust settings
+- Setting execution policy
+- Signing PowerShell scripts
+- Verifying signatures
 
 ## Features
 
-- Checks for existing code-signing certificates
-- Creates a new self-signed certificate if none exists
-- Automatically trusts the certificate by adding it to the Trusted Root store
-- Signs target PowerShell scripts only if they aren't already signed
-- Fully configurable target script path
+✔ Automatic certificate generation  
+✔ Trust chain configuration  
+✔ Execution policy management  
+✔ Smart signing (only if needed)  
+✔ Detailed status reporting  
 
-## Usage
+## Full Script
 
-### Prerequisites
-- PowerShell 5.1 or later
-- Administrator privileges (for certificate store modifications)
-
-### Basic Usage
-
-1. Save the following script as `Sign-Script.ps1`:
+Save as `Enable-SignedScripts.ps1`:
 
 ```powershell
-# Define the path to the script you want to sign (change this variable)
-$path = "C:\Path\To\YourScript.ps1"
+<#
+.SYNOPSIS
+    Configures system to trust and run signed PowerShell scripts
+.DESCRIPTION
+    - Creates self-signed code-signing cert if none exists
+    - Configures certificate trust chain
+    - Sets execution policy to RemoteSigned
+    - Signs target script if unsigned
+.NOTES
+    Requires PowerShell 5.1+ and admin privileges
+#>
 
-function Get-CodeSigningCert {
-    $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.EnhancedKeyUsageList.FriendlyName -contains "Code Signing" }
+param (
+    [string]$ScriptPath = "$HOME\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
+)
+
+# Ensure admin privileges
+if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+    Write-Warning "This script requires administrator rights."
+    Write-Host "Please re-run as Administrator" -ForegroundColor Red
+    exit 1
+}
+
+function Initialize-CodeSigningEnvironment {
+    # Set execution policy
+    Write-Host "Configuring execution policy..." -ForegroundColor Cyan
+    Set-ExecutionPolicy RemoteSigned -Scope LocalMachine -Force
+    Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+
+    # Get or create certificate
+    $cert = Get-ChildItem Cert:\CurrentUser\My | 
+            Where-Object { $_.EnhancedKeyUsageList.FriendlyName -contains "Code Signing" } |
+            Select-Object -First 1
+
+    if (-not $cert) {
+        Write-Host "Creating new code-signing certificate..." -ForegroundColor Cyan
+        $cert = New-SelfSignedCertificate -CertStoreLocation Cert:\CurrentUser\My `
+                -Type CodeSigningCert `
+                -Subject "CN=PowerShell Script Signing Certificate" `
+                -KeyUsage DigitalSignature `
+                -KeyAlgorithm RSA `
+                -KeyLength 2048 `
+                -NotAfter (Get-Date).AddYears(5)
+        
+        # Configure trust chain
+        $certPath = "$env:TEMP\PowerShellSigningCert.cer"
+        $cert | Export-Certificate -FilePath $certPath | Out-Null
+        
+        Write-Host "Configuring certificate trust..." -ForegroundColor Cyan
+        Import-Certificate -FilePath $certPath -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
+        Import-Certificate -FilePath $certPath -CertStoreLocation Cert:\CurrentUser\TrustedPublisher | Out-Null
+        Remove-Item $certPath
+    }
+
     return $cert
 }
 
-function Create-SelfSignedCert {
-    $newCert = New-SelfSignedCertificate -CertStoreLocation Cert:\CurrentUser\My -Type CodeSigningCert -Subject "CN=MyPowerShellCodeSigningCert"
-    
-    $newCert | Export-Certificate -FilePath "$env:USERPROFILE\Desktop\MyPowerShellCodeSigningCert.cer"
-    Import-Certificate -FilePath "$env:USERPROFILE\Desktop\MyPowerShellCodeSigningCert.cer" -CertStoreLocation Cert:\CurrentUser\Root
-    
-    return $newCert
-}
-
-function Is-ScriptSigned {
-    $signature = Get-AuthenticodeSignature $path
-    return $signature.Status -eq 'Valid'
+function Test-ScriptSignature {
+    param([string]$Path)
+    $sig = Get-AuthenticodeSignature -FilePath $Path
+    return $sig.Status -eq 'Valid' -and $sig.SignerCertificate
 }
 
 # Main execution
-$cert = Get-CodeSigningCert
+try {
+    $cert = Initialize-CodeSigningEnvironment
+    
+    Write-Host "`nCertificate Details:" -ForegroundColor Green
+    $cert | Format-List Subject, Thumbprint, NotBefore, NotAfter
 
-if (-not $cert) {
-    Write-Host "No existing code-signing certificate found. Creating a new one..."
-    $cert = Create-SelfSignedCert
-} else {
-    Write-Host "Using existing certificate for code signing..."
+    if (Test-Path $ScriptPath) {
+        if (-not (Test-ScriptSignature -Path $ScriptPath)) {
+            Write-Host "Signing script: $ScriptPath" -ForegroundColor Cyan
+            Set-AuthenticodeSignature -FilePath $ScriptPath -Certificate $cert -HashAlgorithm SHA256
+        }
+        else {
+            Write-Host "Script already signed: $ScriptPath" -ForegroundColor Green
+        }
+        
+        Write-Host "`nSignature Verification:" -ForegroundColor Green
+        Get-AuthenticodeSignature $ScriptPath | Select-Object Status, StatusMessage, SignerCertificate | Format-List
+    }
+    else {
+        Write-Warning "Target script not found: $ScriptPath"
+    }
+
+    Write-Host "`nEnvironment Ready:" -ForegroundColor Green
+    Write-Host "- Execution Policy: $(Get-ExecutionPolicy -Scope CurrentUser)"
+    Write-Host "- Trusted Certificate: $($cert.Subject)"
 }
-
-if (-not (Is-ScriptSigned)) {
-    Write-Host "Signing script..."
-    Set-AuthenticodeSignature -FilePath $path -Certificate $cert
-} else {
-    Write-Host "Script is already signed. No action needed."
+catch {
+    Write-Host "`nError: $_" -ForegroundColor Red
+    exit 1
 }
 
 ```markdown
