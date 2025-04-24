@@ -137,7 +137,18 @@ catch {
 # Sign a specific script
 .\Enable-SignedScripts.ps1 -ScriptPath "C:\scripts\custom.ps1"
 ```
+## If its restriceed or not signed Bypass Execution policy with 
 
+# Run with default settings (signs your PowerShell profile)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Enable-SignedScripts.ps1
+```
+## Sign with
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Enable-SignedScripts.ps1 -ScriptPath "C:\scripts\custom.ps1"
+```
 ---
 
 ## What It Does
