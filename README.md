@@ -1,61 +1,126 @@
-# PowerShell Script Signing & Trust Automation
+Here's the complete markdown documentation for your script signing solution, combining both versions with clear organization:
 
-A complete solution for:
-- Creating code-signing certificates (if none exist)
-- Configuring trust settings
-- Setting execution policy
-- Signing PowerShell scripts
-- Verifying signatures
+```markdown
+# PowerShell Script Signing Automation
 
-## Features
+## Overview
 
-✔ Automatic certificate generation  
-✔ Trust chain configuration  
-✔ Execution policy management  
-✔ Smart signing (only if needed)  
-✔ Detailed status reporting  
+A comprehensive solution for managing PowerShell script signing with two implementation options:
 
-## Full Script
+1. **Basic Version**: Simple certificate creation and script signing
+2. **Advanced Version**: Complete environment configuration with trust chain setup
 
-Save as `Enable-SignedScripts.ps1`:
+## Basic Signing Script
 
 ```powershell
 <#
 .SYNOPSIS
-    Configures system to trust and run signed PowerShell scripts
+    Basic script signing solution for PowerShell
 .DESCRIPTION
-    - Creates self-signed code-signing cert if none exists
-    - Configures certificate trust chain
-    - Sets execution policy to RemoteSigned
-    - Signs target script if unsigned
+    - Checks for existing code-signing certificate
+    - Creates self-signed certificate if needed
+    - Signs target PowerShell script
 .NOTES
-    Requires PowerShell 5.1+ and admin privileges
+    File Name      : Basic-ScriptSigner.ps1
+    Requires       : PowerShell 5.1+
+#>
+
+# Define the path to the script you want to sign
+$path = "F:\VSsetup\TerminalTheme\PowershellScriptSigner\omyposh.ps1"
+
+# Function to check if the certificate exists
+function Get-CodeSigningCert {
+    $cert = Get-ChildItem Cert:\CurrentUser\My | 
+            Where-Object { $_.EnhancedKeyUsageList.FriendlyName -contains "Code Signing" }
+    return $cert
+}
+
+# Function to create new self-signed certificate
+function Create-SelfSignedCert {
+    $newCert = New-SelfSignedCertificate -CertStoreLocation Cert:\CurrentUser\My `
+            -Type CodeSigningCert `
+            -Subject "CN=MyPowerShellCodeSigningCert"
+    
+    # Configure trust
+    $newCert | Export-Certificate -FilePath "$env:USERPROFILE\Desktop\MyPowerShellCodeSigningCert.cer"
+    Import-Certificate -FilePath "$env:USERPROFILE\Desktop\MyPowerShellCodeSigningCert.cer" `
+                      -CertStoreLocation Cert:\CurrentUser\Root
+    
+    return $newCert
+}
+
+# Set execution policy
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+# Check if script is signed
+function Is-ScriptSigned {
+    $signature = Get-AuthenticodeSignature $path
+    return $signature.Status -eq 'Valid'
+}
+
+# Main execution
+$cert = Get-CodeSigningCert
+
+if (-not $cert) {
+    Write-Host "Creating new code-signing certificate..."
+    $cert = Create-SelfSignedCert
+} else {
+    Write-Host "Using existing certificate..."
+}
+
+if (-not (Is-ScriptSigned)) {
+    Write-Host "Signing script..."
+    Set-AuthenticodeSignature -FilePath $path -Certificate $cert
+} else {
+    Write-Host "Script already signed."
+}
+```
+
+### Basic Version Features
+
+- Simple certificate management
+- Automatic script signing
+- Execution policy configuration
+- Lightweight implementation
+
+## Advanced Signing Solution
+
+```powershell
+<#
+.SYNOPSIS
+    Complete PowerShell script signing environment setup
+.DESCRIPTION
+    - Creates self-signed cert if none exists
+    - Configures full trust chain
+    - Sets execution policies
+    - Signs target script
+    - Provides verification
+.NOTES
+    File Name      : Advanced-ScriptSigner.ps1
+    Requires       : PowerShell 5.1+, Administrator rights
 #>
 
 param (
     [string]$ScriptPath = "$HOME\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
 )
 
-# Ensure admin privileges
+# Admin check
 if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-    Write-Warning "This script requires administrator rights."
-    Write-Host "Please re-run as Administrator" -ForegroundColor Red
+    Write-Warning "Administrator rights required"
     exit 1
 }
 
 function Initialize-CodeSigningEnvironment {
-    # Set execution policy
-    Write-Host "Configuring execution policy..." -ForegroundColor Cyan
+    # Execution policies
     Set-ExecutionPolicy RemoteSigned -Scope LocalMachine -Force
     Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 
-    # Get or create certificate
+    # Certificate handling
     $cert = Get-ChildItem Cert:\CurrentUser\My | 
             Where-Object { $_.EnhancedKeyUsageList.FriendlyName -contains "Code Signing" } |
             Select-Object -First 1
 
     if (-not $cert) {
-        Write-Host "Creating new code-signing certificate..." -ForegroundColor Cyan
         $cert = New-SelfSignedCertificate -CertStoreLocation Cert:\CurrentUser\My `
                 -Type CodeSigningCert `
                 -Subject "CN=PowerShell Script Signing Certificate" `
@@ -64,125 +129,137 @@ function Initialize-CodeSigningEnvironment {
                 -KeyLength 2048 `
                 -NotAfter (Get-Date).AddYears(5)
         
-        # Configure trust chain
         $certPath = "$env:TEMP\PowerShellSigningCert.cer"
         $cert | Export-Certificate -FilePath $certPath | Out-Null
-        
-        Write-Host "Configuring certificate trust..." -ForegroundColor Cyan
         Import-Certificate -FilePath $certPath -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
         Import-Certificate -FilePath $certPath -CertStoreLocation Cert:\CurrentUser\TrustedPublisher | Out-Null
         Remove-Item $certPath
     }
-
     return $cert
 }
 
 function Test-ScriptSignature {
     param([string]$Path)
     $sig = Get-AuthenticodeSignature -FilePath $Path
-    return $sig.Status -eq 'Valid' -and $sig.SignerCertificate
+    return $sig.Status -eq 'Valid'
 }
 
-# Main execution
+# Main process
 try {
     $cert = Initialize-CodeSigningEnvironment
     
-    Write-Host "`nCertificate Details:" -ForegroundColor Green
-    $cert | Format-List Subject, Thumbprint, NotBefore, NotAfter
-
     if (Test-Path $ScriptPath) {
         if (-not (Test-ScriptSignature -Path $ScriptPath)) {
-            Write-Host "Signing script: $ScriptPath" -ForegroundColor Cyan
             Set-AuthenticodeSignature -FilePath $ScriptPath -Certificate $cert -HashAlgorithm SHA256
         }
-        else {
-            Write-Host "Script already signed: $ScriptPath" -ForegroundColor Green
-        }
-        
-        Write-Host "`nSignature Verification:" -ForegroundColor Green
         Get-AuthenticodeSignature $ScriptPath | Select-Object Status, StatusMessage, SignerCertificate | Format-List
     }
     else {
-        Write-Warning "Target script not found: $ScriptPath"
+        Write-Warning "Script not found: $ScriptPath"
     }
-
-    Write-Host "`nEnvironment Ready:" -ForegroundColor Green
-    Write-Host "- Execution Policy: $(Get-ExecutionPolicy -Scope CurrentUser)"
-    Write-Host "- Trusted Certificate: $($cert.Subject)"
 }
 catch {
-    Write-Host "`nError: $_" -ForegroundColor Red
+    Write-Host "Error: $_" -ForegroundColor Red
     exit 1
 }
-
-```markdown
-# Usage
-
-## Basic Usage
-
-```powershell
-# Run with default settings (signs your PowerShell profile)
-.\Enable-SignedScripts.ps1
 ```
 
-## Custom Script Path
+### Advanced Version Features
+
+- Complete trust chain configuration (Root + TrustedPublisher)
+- Stronger cryptography (RSA 2048)
+- System-wide execution policies
+- Detailed error handling
+- Comprehensive verification
+- Parameterized script path
+
+## Usage Guide
+
+### For Basic Version
+
+1. Set your script path in `$path` variable
+2. Run script:
+   ```powershell
+   .\Basic-ScriptSigner.ps1
+   ```
+
+### For Advanced Version
+
+1. Run with default profile path:
+   ```powershell
+   .\Advanced-ScriptSigner.ps1
+   ```
+2. Or specify custom path:
+   ```powershell
+   .\Advanced-ScriptSigner.ps1 -ScriptPath "C:\scripts\custom.ps1"
+   ```
+
+## Verification Commands
 
 ```powershell
-# Sign a specific script
-.\Enable-SignedScripts.ps1 -ScriptPath "C:\scripts\custom.ps1"
-```
-
----
-
-# What It Does
-
-- Checks for existing code-signing certificates  
-- Creates new self-signed certificate if needed  
-- Configures trust stores (Root + TrustedPublisher)  
-- Sets execution policy to RemoteSigned  
-- Signs target script if unsigned  
-- Provides verification output  
-
----
-
-# Verification
-
-Check system status:
-
-```powershell
+# Check execution policies
 Get-ExecutionPolicy -List
-Get-ChildItem Cert:\CurrentUser\My, Cert:\CurrentUser\Root | Where-Object { $_.Subject -like "*PowerShell*" }
+
+# Verify certificate trust
+Get-ChildItem Cert:\CurrentUser\My, Cert:\CurrentUser\Root | 
+    Where-Object { $_.Subject -like "*PowerShell*" } |
+    Format-List Subject, Thumbprint, NotAfter
+
+# Check script signature
+Get-AuthenticodeSignature "your_script.ps1" | Format-List
 ```
 
----
+## Security Recommendations
 
-# Requirements
+1. **Certificate Types**:
+   - Use self-signed certs only for testing
+   - Production environments should use CA-issued certificates
 
-- Windows PowerShell 5.1+  
-- Administrator privileges  
-- PowerShell execution policy allowing script execution  
+2. **Execution Policies**:
+   - `RemoteSigned` balances security and usability
+   - `AllSigned` provides stricter security but requires all scripts be signed
 
----
+3. **Certificate Management**:
+   - Regularly rotate certificates (annual recommended)
+   - Keep private keys secure
+   - Revoke compromised certificates immediately
 
-# Security Notes
+## Troubleshooting
 
-- Self-signed certificates should only be used for testing/personal use  
-- For production environments, use certificates from a trusted CA  
-- Execution policy is not a security boundary  
-
----
-
-# Key Improvements in This Version
-
-1. Added proper parameter handling for script path  
-2. Enhanced certificate creation with stronger crypto (RSA 2048)  
-3. Better trust chain configuration (Root + TrustedPublisher)  
-4. Detailed status output  
-5. Proper error handling  
-6. Verification steps  
-7. Security notes  
-
----
-
-The script now completely automates the process from certificate creation through to script signing while maintaining security best practices.
+**Issue**: "UnknownError" in signature status  
+**Solution**:  
+```powershell
+# Re-import certificate to trusted stores
+$cert | Export-Certificate -FilePath "$env:TEMP\temp.cer"
+Import-Certificate -FilePath "$env:TEMP\temp.cer" -CertStoreLocation Cert:\CurrentUser\Root
 ```
+
+**Issue**: Script won't run after signing  
+**Solution**: Verify:
+1. Certificate is in TrustedPublisher store
+2. Execution policy is properly set
+3. Certificate hasn't expired
+
+## Version Comparison
+
+| Feature                | Basic Version | Advanced Version |
+|------------------------|---------------|------------------|
+| Certificate Creation   | ✓             | ✓ (Stronger)     |
+| Trust Chain Setup      | Basic         | Complete         |
+| Execution Policy       | CurrentUser   | System-wide      |
+| Error Handling         | Minimal       | Comprehensive    |
+| Admin Rights Required  | No            | Yes              |
+| Verification Output    | No            | Yes              |
+| Recommended Use Case   | Personal      | Enterprise       |
+```
+
+This documentation provides:
+1. Clear separation between basic and advanced versions
+2. Complete script code blocks
+3. Usage instructions for both versions
+4. Verification methods
+5. Security recommendations
+6. Troubleshooting guide
+7. Feature comparison table
+
+The markdown is ready to add to your GitHub repository's README.md file.
