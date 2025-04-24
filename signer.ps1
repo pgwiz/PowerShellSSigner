@@ -20,6 +20,9 @@ function Create-SelfSignedCert {
     return $newCert
 }
 
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+
 # Check if the script is already signed
 function Is-ScriptSigned {
     $signature = Get-AuthenticodeSignature $path
@@ -77,3 +80,8 @@ if (-not (Is-ScriptSigned)) {
 # pf+oRKQ4kvQbSB/CrhWewt4y91keKABd8tGuBoQFtfJ7KzdjTkR7+ulpKIY9Nat5
 # uGcrJ+1VA/pnwZkPhqfkzVPl3dA0vkS/UFzjQ5n3x/ZLsPBl7A==
 # SIG # End signature block
+
+# Import your certificate to Trusted Publishers store
+$cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.EnhancedKeyUsageList.FriendlyName -contains "Code Signing" }
+$cert | Export-Certificate -FilePath "$env:TEMP\MyCert.cer"
+Import-Certificate -FilePath "$env:TEMP\MyCert.cer" -CertStoreLocation Cert:\CurrentUser\TrustedPublisher
