@@ -1,5 +1,5 @@
 
-```markdown
+
 # PowerShell Script Signing & Trust Automation
 
 A complete solution for:
