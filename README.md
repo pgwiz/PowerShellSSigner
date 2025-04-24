@@ -59,3 +59,75 @@ if (-not (Is-ScriptSigned)) {
 } else {
     Write-Host "Script is already signed. No action needed."
 }
+
+```markdown
+# Usage
+
+## Basic Usage
+
+```powershell
+# Run with default settings (signs your PowerShell profile)
+.\Enable-SignedScripts.ps1
+```
+
+## Custom Script Path
+
+```powershell
+# Sign a specific script
+.\Enable-SignedScripts.ps1 -ScriptPath "C:\scripts\custom.ps1"
+```
+
+---
+
+# What It Does
+
+- Checks for existing code-signing certificates  
+- Creates new self-signed certificate if needed  
+- Configures trust stores (Root + TrustedPublisher)  
+- Sets execution policy to RemoteSigned  
+- Signs target script if unsigned  
+- Provides verification output  
+
+---
+
+# Verification
+
+Check system status:
+
+```powershell
+Get-ExecutionPolicy -List
+Get-ChildItem Cert:\CurrentUser\My, Cert:\CurrentUser\Root | Where-Object { $_.Subject -like "*PowerShell*" }
+```
+
+---
+
+# Requirements
+
+- Windows PowerShell 5.1+  
+- Administrator privileges  
+- PowerShell execution policy allowing script execution  
+
+---
+
+# Security Notes
+
+- Self-signed certificates should only be used for testing/personal use  
+- For production environments, use certificates from a trusted CA  
+- Execution policy is not a security boundary  
+
+---
+
+# Key Improvements in This Version
+
+1. Added proper parameter handling for script path  
+2. Enhanced certificate creation with stronger crypto (RSA 2048)  
+3. Better trust chain configuration (Root + TrustedPublisher)  
+4. Detailed status output  
+5. Proper error handling  
+6. Verification steps  
+7. Security notes  
+
+---
+
+The script now completely automates the process from certificate creation through to script signing while maintaining security best practices.
+```
