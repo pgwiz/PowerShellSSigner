@@ -30,17 +30,19 @@ Save the following as `Enable-SignedScripts.ps1`:
 <#
 .SYNOPSIS
     Configures system to trust and run signed PowerShell scripts
+
 .DESCRIPTION
-    - Creates self-signed code-signing cert if none exists
+    - Creates a self-signed code-signing certificate if none exists
     - Configures certificate trust chain
-    - Sets execution policy to RemoteSigned
-    - Signs target script if unsigned
+    - Signs a specified PowerShell script if it's unsigned
+    - Verifies signature status after signing
+
 .NOTES
-    Requires PowerShell 5.1+ and admin privileges
+    Requires PowerShell 5.1+ and administrator privileges
 #>
 
 param (
-    [string]$ScriptPath = "C:\Users\%username%\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
+    [string]$ScriptPath = "C:\Users\HP FOLIO 9480m\pgwiz\.ap\Scripts\Activate.ps1"
 )
 
 # Ensure admin privileges
@@ -51,14 +53,17 @@ if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 }
 
 function Initialize-CodeSigningEnvironment {
-    Write-Host "Configuring execution policy..." -ForegroundColor Cyan
-    Set-ExecutionPolicy RemoteSigned -Scope LocalMachine -Force
-    Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+    Write-Host "Checking execution policies..." -ForegroundColor Cyan
+    Write-Host "  CurrentUser:  $(Get-ExecutionPolicy -Scope CurrentUser)"
+    Write-Host "  LocalMachine: $(Get-ExecutionPolicy -Scope LocalMachine)"
+    Write-Host "Skipping execution policy change (already RemoteSigned or blocked)" -ForegroundColor Yellow
 
+    # Check for an existing code-signing certificate
     $cert = Get-ChildItem Cert:\CurrentUser\My |
             Where-Object { $_.EnhancedKeyUsageList.FriendlyName -contains "Code Signing" } |
             Select-Object -First 1
 
+    # Create and trust certificate if none found
     if (-not $cert) {
         Write-Host "Creating new code-signing certificate..." -ForegroundColor Cyan
         $cert = New-SelfSignedCertificate -CertStoreLocation Cert:\CurrentUser\My `
@@ -75,7 +80,7 @@ function Initialize-CodeSigningEnvironment {
         Write-Host "Configuring certificate trust..." -ForegroundColor Cyan
         Import-Certificate -FilePath $certPath -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
         Import-Certificate -FilePath $certPath -CertStoreLocation Cert:\CurrentUser\TrustedPublisher | Out-Null
-        Remove-Item $certPath
+        Remove-Item $certPath -Force
     }
 
     return $cert
@@ -89,6 +94,7 @@ function Test-ScriptSignature {
 
 # Main execution
 try {
+    Write-Host "START: Setting up code-signing environment..." -ForegroundColor Green
     $cert = Initialize-CodeSigningEnvironment
 
     Write-Host "`nCertificate Details:" -ForegroundColor Green
@@ -111,11 +117,12 @@ try {
     }
 
     Write-Host "`nEnvironment Ready:" -ForegroundColor Green
-    Write-Host "- Execution Policy: $(Get-ExecutionPolicy -Scope CurrentUser)"
+    Write-Host "- Execution Policy (CurrentUser):  $(Get-ExecutionPolicy -Scope CurrentUser)"
+    Write-Host "- Execution Policy (LocalMachine): $(Get-ExecutionPolicy -Scope LocalMachine)"
     Write-Host "- Trusted Certificate: $($cert.Subject)"
 }
 catch {
-    Write-Host "`nError: $_" -ForegroundColor Red
+    Write-Host "`nError: $($_.Exception.Message)" -ForegroundColor Red
     exit 1
 }
 ```
