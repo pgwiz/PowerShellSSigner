@@ -120,6 +120,8 @@ try {
     Write-Host "- Execution Policy (CurrentUser):  $(Get-ExecutionPolicy -Scope CurrentUser)"
     Write-Host "- Execution Policy (LocalMachine): $(Get-ExecutionPolicy -Scope LocalMachine)"
     Write-Host "- Trusted Certificate: $($cert.Subject)"
+Set-ExecutionPolicy RemoteSigned
+
 }
 catch {
     Write-Host "`nError: $($_.Exception.Message)" -ForegroundColor Red
